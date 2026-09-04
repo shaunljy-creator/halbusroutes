@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Transport – Route Map</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --paper: #fafaf9;
+    --line: #ddd9d0;
+    --accent: #1e5c4a;
+    --accent-soft: #e5efe9;
+    --muted: #6b6b63;
+    --warn: #9a5a12;
+    --warn-bg: #fbf1e2;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+  }
+
+  .app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: #fff;
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header { padding: 16px 16px 10px; border-bottom: 1px solid var(--line); }
+  .sidebar-header h1 { font-size: 1.05rem; margin: 0 0 2px; }
+  .sidebar-header p { font-size: 0.78rem; color: var(--muted); margin: 0; }
+
+  .setup-banner {
+    background: var(--warn-bg);
+    color: var(--warn);
+    font-size: 0.78rem;
+    padding: 10px 12px;
+    margin: 10px;
+    border-radius: 8px;
+    border: 1px solid #e8c98f;
+    display: none;
+  }
+
+  .bus-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .bus-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .bus-btn:hover { background: var(--accent-soft); }
+  .bus-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .bus-btn.active { background: var(--accent); color: #fff; }
+  .bus-btn .stopcount { font-weight: 400; font-size: 0.78rem; color: var(--muted); margin-left: 4px; }
+  .bus-btn.active .stopcount { color: #cfe3da; }
+
+  .map-area { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  .map-status {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 7px 16px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    z-index: 1000;
+    display: none;
+  }
+
+  .route-panel {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    max-width: 420px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: none;
+  }
+  .route-panel .bus-tag {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+  }
+  .route-panel p { margin: 0; font-size: 0.82rem; color: var(--muted); }
+
+  @media (max-width: 720px) {
+    .app { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--line); }
+    .map-area { flex: 1; min-height: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Bus Routes</h1>
+      <p>Tap a route to see it on the map</p>
+    </div>
+    <div class="setup-banner" id="setupBanner"></div>
+    <div class="bus-list" id="busList"></div>
+  </div>
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="map-status" id="mapStatus"></div>
+    <div class="route-panel" id="routePanel"></div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   PASTE YOUR GOOGLE MAPS API KEY BELOW BEFORE DEPLOYING.
+   Enable "Maps JavaScript API" and "Geocoding API" in Google Cloud
+   Console, turn on billing, then restrict the key under "Application
+   restrictions" to the exact domain you host this file on (HTTP
+   referrer restriction). Without that restriction, anyone who views
+   this page's source can copy the key and run up charges on your
+   Google Cloud account.
+   ========================================================= */
+const GOOGLE_MAPS_API_KEY = "YOUR_API_KEY_HERE";
+</script>
+<script>
+const BUSES = {"1":[{"display":"Bus stop 83119 Opp Blk 16- Jln Eunos","origin":"Opp Blk 16- Jln Eunos, Singapore"},{"display":"Bus stop 83029 Aft Kg Eunos - Changi Road","origin":"after Kg Eunos - Changi Road, Singapore"},{"display":"Opposite Kembangan-Chai Chee Community Hub","origin":"Opposite Kembangan-Chai Chee Community Hub, Singapore"},{"display":"Bus Stop 82109 after City Plaza- Geylang Road","origin":"after City Plaza- Geylang Road, Singapore"},{"display":"Bus stop 81049 After Geylang Lor 34- Geylang Road","origin":"After Geylang Lor 34- Geylang Road, Singapore"},{"display":"Bus stop 81159 Opp Kong Hwa Sch - Guillemard Rd (IN ONLY)","origin":"Opp Kong Hwa Sch - Guillemard Rd, Singapore"},{"display":"Bus stop 81029 After Geylang Lor 28- Geylang Road","origin":"After Geylang Lor 28- Geylang Road, Singapore"},{"display":"Bus stop 80051 Aft Lor 1 Geylang - Sims ave","origin":"after Lor 1 Geylang - Sims ave, Singapore"}],"1WP":[{"display":"Bus Stop 13079 Os Great World Stn Exit 4 - River Valley Rd","origin":"Os Great World Stn Exit 4 - River Valley Rd, Singapore"},{"display":"Bus Stop 10161 opp Tiong Bahru Plaza - Tiong Bahru Rd","origin":"opp Tiong Bahru Plaza - Tiong Bahru Rd, Singapore"},{"display":"Bus Stop 10201 Opp Redhill Stn - Tiong Bahru Rd","origin":"Opp Redhill Stn - Tiong Bahru Rd, Singapore"},{"display":"Bus Stop 10291 Bef Dawson Rd - Alexandra Rd","origin":"before Dawson Rd - Alexandra Rd, Singapore"},{"display":"Bus Stop 11131 Queens Condo - Commonwealth Ave","origin":"Queens Condo - Commonwealth Ave, Singapore"},{"display":"Bus Stop 11151 Infront Blk 42 - Commonwealth Ave","origin":"in front of Blk 42 - Commonwealth Ave, Singapore"},{"display":"Bus Stop 11101 Empress Road Mkt/FC - Farrer Road","origin":"Empress Road Mkt/FC - Farrer Road, Singapore"},{"display":"Bus Stop Infront Commonwealth Mrt Station- Commonwealth Ave","origin":"nfront Commonwealth Mrt Station- Commonwealth Ave, Singapore"},{"display":"Bus Stop 11191 The Star Vista - Commonwealth Ave","origin":"The Star Vista - Commonwealth Ave, Singapore"},{"display":"Bus Stop 19011 Blk19a CP - Commonwealth Ave","origin":"Blk19a CP - Commonwealth Ave, Singapore"}],"2":[{"display":"Bus stop 43251 Infront Hillbrooks - Hillview Ave","origin":"in front of Hillbrooks - Hillview Ave, Singapore"},{"display":"Bus stop 43267 Hillview Hts - Hillview Ave","origin":"Hillview Hts - Hillview Ave, Singapore"},{"display":"Bus Bay Aft Hume Stn Exit 2- Hume Ave","origin":"ft Hume Stn Exit 2- Hume Ave, Singapore"},{"display":"Bus Stop 17151 Infront Blk 410 - Commowealth Ave West","origin":"in front of Blk 410 - Commowealth Ave West, Singapore"},{"display":"Bus Stop B17171 Clementi Mall - Commonwealth Ave West","origin":"Clementi Mall - Commonwealth Ave West, Singapore"},{"display":"Bus Stop B17181 Opp 317 - Clementi Ave 6","origin":"Opp 317 - Clementi Ave 6, Singapore"},{"display":"Bus Stop B17051 Opp Regent Pk, Opp Blk 436 - Clementi Ave 6","origin":"Opp Regent Pk, Opp Blk 436 - Clementi Ave 6, Singapore"}],"3WP":[{"display":"Bus Stop 64419 Infront Blk 681 - Hougang Ave 4","origin":"in front of Blk 681 - Hougang Ave 4, Singapore"},{"display":"Hougang Central Taxi stand - Hougang central","origin":"Hougang Central Taxi stand - Hougang central, Singapore"},{"display":"Bus stop 64409 Infront blk 477A - Upper Serangoon Rd","origin":"in front of blk 477A - Upper Serangoon Rd, Singapore"},{"display":"Bus stop 64069 Infront Serangoon Sec Sch - Upper Serangoon Rd","origin":"in front of Serangoon Sec Sch - Upper Serangoon Rd, Singapore"},{"display":"Bus stop 64309 Opp Blk 321 - Hougang Ave 7","origin":"Opp Blk 321 - Hougang Ave 7, Singapore"},{"display":"Bus stop 63339 Opposite Blk 615(Opposite SPC) - Hougang Ave 2","origin":"Opposite Blk 615 - Hougang Ave 2, Singapore"},{"display":"Bus stop 66339 Infront blk 101 - Ang mo kio Ave 3","origin":"in front of blk 101 - Ang mo kio Ave 3, Singapore"}],"4WP":[{"display":"Bus stop B67609 Buangkok Stn Exit A - Sengkang Central","origin":"Buangkok Stn Exit A - Sengkang Central, Singapore"},{"display":"Compassvale Lane infront of Sengkang Secondary School","origin":"Compassvale Lane in front of of Sengkang Secondary School, Singapore"},{"display":"Bus Stop 67239 Opp Rivervale Pr Sch - Rivervale Drive","origin":"Opp Rivervale Pr Sch - Rivervale Drive, Singapore"},{"display":"Bus stop 67409 Compass One taxi stand - Sengkang east way","origin":"Compass One taxi stand - Sengkang east way, Singapore"},{"display":"Bus stop 67399 Infront Blk 325 Car Park - Sengkang East Way","origin":"in front of Blk 325 Car Park - Sengkang East Way, Singapore"},{"display":"Bus stop 67371 Infront Blk 313 CP - Anchorvale Rd","origin":"in front of Blk 313 CP - Anchorvale Rd, Singapore"},{"display":"Bus stop 67489 Opp Fernvale Stn - Sengkang West Ave","origin":"Opp Fernvale Stn - Sengkang West Ave, Singapore"}],"5":[{"display":"Bus Stop 75589 Opposite Blk 638a Tampines St 62","origin":"Opposite Blk 638a Tampines St 62, Singapore"},{"display":"Bus Stop 76039 Tampines East Stn Exit C- Tampines Ave 2","origin":"Tampines East Stn Exit C- Tampines Ave 2, Singapore"},{"display":"Bus Stop 76099 Blk 285 Tampines Ave 2","origin":"Blk 285 Tampines Ave 2, Singapore"},{"display":"Bus Stop 76051 Our Tampines Hub","origin":"Our Tampines Hub, Singapore"},{"display":"Bus stop 75271 Infront blk 721 - Tampines Ave 9","origin":"in front of blk 721 - Tampines Ave 9, Singapore"},{"display":"Bus Stop 75201 Infront blk 835 - Tampines Street 83","origin":"in front of blk 835 - Tampines Street 83, Singapore"},{"display":"Bus Stop 75039 Springfield Sec Sch - Tampines Ave 8","origin":"Springfield Sec Sch - Tampines Ave 8, Singapore"}],"5WP":[{"display":"Near Seletar Hills Estate - Seletar Rd","origin":"Near Seletar Hills Estate - Seletar Rd, Singapore"},{"display":"Security post of Greenwich condo - Along Seletar Road","origin":"Security post of Greenwich condo - Along Seletar Road, Singapore"},{"display":"Bus Stop 55089 Aft Sunrise Gdns, - Yio Chu Kang Road","origin":"after Sunrise Gdns, - Yio Chu Kang Road, Singapore"},{"display":"Bus Stop 54589 Infront Blk 555 - Ang Mo Kio Ave 10","origin":"in front of Blk 555 - Ang Mo Kio Ave 10, Singapore"},{"display":"Bus Stop 54279 - Blk 427 - Ang Mo Kio Ave 3","origin":"Blk 427 - Ang Mo Kio Ave 3, Singapore"},{"display":"Bus Stop 54269 - Opp AMK Station, infront Blk 425 - Ang Mo Kio Ave 3","origin":"Opp AMK Station, in front of Blk 425 - Ang Mo Kio Ave 3, Singapore"}],"6":[{"display":"Bus Stop 77289 Infront Blk 738 - Pasir Ris Dr 1","origin":"in front of Blk 738 - Pasir Ris Dr 1, Singapore"},{"display":"Bus Stop 78049 Infront Blk 612 - Pasir Ris Dr 1","origin":"in front of Blk 612 - Pasir Ris Dr 1, Singapore"},{"display":"Bus Stop 77029 Infront Blk 570 - Pasir Ris Dr 1","origin":"in front of Blk 570 - Pasir Ris Dr 1, Singapore"},{"display":"Bus Stop 77059 Infront Blk 425 - Pasir Ris Dr 1","origin":"in front of Blk 425 - Pasir Ris Dr 1, Singapore"},{"display":"Bus stop 78119 Infront Sea Horizon Condo - Pasir Ris Dr 3","origin":"in front of Sea Horizon Condo - Pasir Ris Dr 3, Singapore"},{"display":"Bus Stop 98019 opp Blk 149A - Loyang Ave","origin":"opp Blk 149A - Loyang Ave, Singapore"},{"display":"Bus Stop 97059 Infront Tanah Merah Women Prison -Upper Changi Road North","origin":"in front of Tanah Merah Women Prison -Upper Changi Road North, Singapore"},{"display":"Traffic Light Infront ESYS Technologies Upper Changi Road North","origin":"Traffic Light in front of ESYS Technologies Upper Changi Road North, Singapore"},{"display":"Sunhaven Condo (After the exit at main rd) - Upper Changi Road East","origin":"Sunhaven Condo  - Upper Changi Road East, Singapore"},{"display":"Bus Stop 96199 Infront Blk 168D - Simei Rd","origin":"in front of Blk 168D - Simei Rd, Singapore"},{"display":"Bus Stop 96161 Opp Simei MRT- Simei Street","origin":"Opp Simei MRT- Simei Street, Singapore"}],"6WP":[{"display":"Bus Stop 58521 Infront Blk 106A - Canberra St","origin":"in front of Blk 106A - Canberra St, Singapore"},{"display":"Bus Stop 58531 Infront Blk 129A - Canberra Way","origin":"in front of Blk 129A - Canberra Way, Singapore"},{"display":"Bus Stop 58261 Os Visionaire - Canberra Link","origin":"Os Visionaire - Canberra Link, Singapore"},{"display":"Bus Stop 58111 Infront Blk 351 - Canberra Rd","origin":"in front of Blk 351 - Canberra Rd, Singapore"},{"display":"Bus Stop 58421 Infront Blk 353- Admiralty Dr","origin":"in front of Blk 353- Admiralty Dr, Singapore"},{"display":"Bus Stop 58221 Infront Blk 339A - Sembawang Way","origin":"in front of Blk 339A - Sembawang Way, Singapore"},{"display":"Bus Stop 58371 Between Blk 325/ 326 (opp Skypark Residences)- Sembawang Crescent","origin":"Between Blk 325/ 326 - Sembawang Crescent, Singapore"},{"display":"Bus Stop 47539 Opp Woodgrove Sec Sch - Woodlands Ave 6","origin":"Opp Woodgrove Sec Sch - Woodlands Ave 6, Singapore"}],"7":[{"display":"Bus Stop 84131 Opp Panasonic Stop- Bedok S Rd","origin":"Opp Panasonic Stop- Bedok S Rd, Singapore"},{"display":"Bus Stop 85091 Tanah Merah Station Exit B- New Upper Changi Rd","origin":"Tanah Merah Station Exit B- New Upper Changi Rd, Singapore"},{"display":"Bus Stop 85029 Aft Bedok Meth Ch Stop- Bedok Road","origin":"after Bedok Meth Ch Stop- Bedok Road, Singapore"},{"display":"Bus Stop 84661 Blk 172 Bedok Sth Ave 3","origin":"Blk 172 Bedok Sth Ave 3, Singapore"},{"display":"Bus Stop 92079 Blk 57 Marine Parade Rd","origin":"Blk 57 Marine Parade Rd, Singapore"},{"display":"Bus stop 92049 Parkway parade - Marine Parade Rd","origin":"Parkway parade - Marine Parade Rd, Singapore"}],"7WP":[{"display":"Bus Stop 53129 Opp Marymount Stn - Marymount Rd","origin":"Opp Marymount Stn - Marymount Rd, Singapore"},{"display":"Bus Stop 53279 Infront Kuo Chuan Presby Sch - Bishan St 13","origin":"in front of Kuo Chuan Presby Sch - Bishan St 13, Singapore"},{"display":"Bus Stop 53251 Infront Blk 125 - Bishan St 11","origin":"in front of Blk 125 - Bishan St 11, Singapore"},{"display":"Bus Stop 52159 Infront Blk 128 - Lor 1 Toa Payoh","origin":"in front of Blk 128 - Lor 1 Toa Payoh, Singapore"},{"display":"Bus Stop 52189 Toa Payoh MRT Lor 2 Toa Payoh","origin":"Toa Payoh MRT Lor 2 Toa Payoh, Singapore"},{"display":"Bus Stop 52079 Opp Trellis Twrs - PIE","origin":"Opp Trellis Twrs - PIE, Singapore"}],"8WP":[{"display":"Bus stop 44801 opposite Blk 628 - Senja Road","origin":"opposite Blk 628 - Senja Road, Singapore"},{"display":"Bus Stop 44811 Infront West Spring Sec Sch - Senja Rd","origin":"in front of West Spring Sec Sch - Senja Rd, Singapore"},{"display":"Bus Stop 44821 Infront Blk 643 - Senja Rd (change IN pick up point)","origin":"in front of Blk 643 - Senja Rd, Singapore"},{"display":"Bus Stop 44661 Infront Blk 532 - Jelapang Rd","origin":"in front of Blk 532 - Jelapang Rd, Singapore"},{"display":"Bus Stop 44691 Infront Blk 485 - Segar Rd","origin":"in front of Blk 485 - Segar Rd, Singapore"},{"display":"Bus Stop 44771 Fajar LRT - Fajar Rd","origin":"Fajar LRT - Fajar Rd, Singapore"},{"display":"Infront Mosque Mjd Al-Iman- Bt Panjang Ring Rd","origin":"in front of Mosque Mjd Al-Iman- Bt Panjang Ring Rd, Singapore"},{"display":"Bus Stop 44229 Pending LRT - Pending Rd","origin":"Pending LRT - Pending Rd, Singapore"},{"display":"Bus Stop 44209 Infront Blk 150 - Petir Rd","origin":"in front of Blk 150 - Petir Rd, Singapore"},{"display":"Bus Stop 44351 Aft Chestnut Ave- Petir Rd","origin":"after Chestnut Ave- Petir Rd, Singapore"},{"display":"Infront Blk 177A - Bukit Panjang Rd","origin":"in front of Blk 177A - Bukit Panjang Rd, Singapore"},{"display":"Bus Stop 44259 Infront Blk 183A - Bukit Panjang Rd","origin":"in front of Blk 183A - Bukit Panjang Rd, Singapore"},{"display":"Bus Stop after Phoenix LRT (After bus makes a U-turn) - Choa Chu Kang Rd","origin":"fter Phoenix LRT  - Choa Chu Kang Rd, Singapore"}],"9":[{"display":"Bus Stop 65259 Punggol Stn/Int Opposite Water way point - Punggol central","origin":"Punggol Stn/Int Opposite Water way point - Punggol central, Singapore"},{"display":"Bus Stop 65461 Infront Blk 312 CP - Sumang Link","origin":"in front of Blk 312 CP - Sumang Link, Singapore"},{"display":"Bus stop 65309 Opposite blk 612A - Punggol Drive","origin":"Opposite blk 612A - Punggol Drive, Singapore"},{"display":"Bus Stop 65419 Opposite Horizon Pri Sch - Edgedale Plains","origin":"Opposite Horizon Pri Sch - Edgedale Plains, Singapore"},{"display":"Bus Stop 65429 Infront Greendale Pri Sch - Edgedale Plains","origin":"in front of Greendale Pri Sch - Edgedale Plains, Singapore"},{"display":"Bus stop 65171 Infront 171a-Punggol field","origin":"in front of 171a-Punggol field, Singapore"},{"display":"Bus stop 67539 Infront blk 122C-Sengkang east way","origin":"in front of blk 122C-Sengkang east way, Singapore"},{"display":"Bus stop Blk 119D - Rivervale Drive","origin":"lk 119D - Rivervale Drive, Singapore"}],"9WP":[{"display":"Bus Stop 46749 Opp Seagate - Gambas Ave","origin":"Opp Seagate - Gambas Ave, Singapore"},{"display":"Bus Stop 46799 Infront Blk 786A - Woodlands Ave 6","origin":"in front of Blk 786A - Woodlands Ave 6, Singapore"},{"display":"Bus Stop 46779 Admiralty MRT - Woodlands Ave 7","origin":"Admiralty MRT - Woodlands Ave 7, Singapore"},{"display":"Bus Stop 46869 Blk 628A - Woodlands Ring Road","origin":"Blk 628A - Woodlands Ring Road, Singapore"},{"display":"Bus Stop 46689 Blk 609 - Woodlands Ave 4","origin":"Blk 609 - Woodlands Ave 4, Singapore"},{"display":"Bus Stop 46649 Infront Blk 515 - Woodlands ave 5","origin":"in front of Blk 515 - Woodlands ave 5, Singapore"},{"display":"Bus Stop 46329 Blk 365 (Opp Civic centre) - Woodlands Ave 5","origin":"Blk 365  - Woodlands Ave 5, Singapore"},{"display":"Bus Stop 46549 Infront Blk 347 Woodlands Avenue 5","origin":"in front of Blk 347 Woodlands Avenue 5, Singapore"}],"10WP":[{"display":"Bus Stop 27441 Infront Blk 758 - Jurong West Ave 5","origin":"in front of Blk 758 - Jurong West Ave 5, Singapore"},{"display":"Bus Stop 27431 Infront Blk 762 - Jurong West Ave 5","origin":"in front of Blk 762 - Jurong West Ave 5, Singapore"},{"display":"Bus Stop 27351 Infront Blk 715 - Jurong West Ave 5","origin":"in front of Blk 715 - Jurong West Ave 5, Singapore"},{"display":"Bus Stop 27429 Blk 711 - Jurong West St 71","origin":"Blk 711 - Jurong West St 71, Singapore"},{"display":"Bus Stop 22521 Near Pioneer MRT (Coffee Shop) - Jurong West St 63","origin":"Near Pioneer MRT  - Jurong West St 63, Singapore"}],"11WP":[{"display":"Bus Stop 45421 Infront Blk 689A - CCK Crest","origin":"in front of Blk 689A - CCK Crest, Singapore"},{"display":"Bus Stop 45329 Opp Yew Tee MRT - CCK Dr","origin":"Opp Yew Tee MRT - CCK Dr, Singapore"},{"display":"Bus Stop 45371 Blk 52 Yew Mei Green - CCK North 6","origin":"Blk 52 Yew Mei Green - CCK North 6, Singapore"},{"display":"Bus Stop 45361 Opposit Blk 765 Yew Mei Green - CCK North 5","origin":"Opposit Blk 765 Yew Mei Green - CCK North 5, Singapore"},{"display":"Bus Stop 45301 Blk 708 - Choa Chu Kang North 5","origin":"Blk 708 - Choa Chu Kang North 5, Singapore"},{"display":"Bus Stop 45319 Blk 530 - Choa Chu Kang North 5","origin":"Blk 530 - Choa Chu Kang North 5, Singapore"},{"display":"Bus Stop 44511 Infront Blk 289 - CCK Ave 3","origin":"in front of Blk 289 - CCK Ave 3, Singapore"}],"12":[{"display":"Bus Stop 28089 Infront Yuhua CC - Boon Lay Way","origin":"in front of Yuhua CC - Boon Lay Way, Singapore"},{"display":"Bus Stop 28079 Infront Blk 210 - Boon Lay Way","origin":"in front of Blk 210 - Boon Lay Way, Singapore"},{"display":"Bus Stop 28649 infront of Blk 286A - Toh Guan Rd","origin":"in front of of Blk 286A - Toh Guan Rd, Singapore"},{"display":"Bus Stop 28639 Infront Blk 288E - Toh Guan Rd","origin":"in front of Blk 288E - Toh Guan Rd, Singapore"},{"display":"Bus Stop 28321 Infront Blk 239 - Jurong East Ave 1","origin":"in front of Blk 239 - Jurong East Ave 1, Singapore"},{"display":"Bus Stop 28331 Infront Blk 229 (SPC) - Jurong East Ave 1","origin":"in front of Blk 229  - Jurong East Ave 1, Singapore"},{"display":"Bus Stop 28291 Infront Blk 303 - Jurong Town Hall Road","origin":"in front of Blk 303 - Jurong Town Hall Road, Singapore"}],"12WP":[{"display":"Bus Stop 40439 Opp Blk 236A - Tengah Drive","origin":"Opp Blk 236A - Tengah Drive, Singapore"},{"display":"Bus Stop 40399 Opp Blk 123B - Tengah Blvd","origin":"Opp Blk 123B - Tengah Blvd, Singapore"},{"display":"Bus Stop 40381 Opp Blk 111 - Plantation Crescent","origin":"Opp Blk 111 - Plantation Crescent, Singapore"}],"13":[{"display":"Bus Stop B28451 Opp Blk 301- Jurong East Ave 1","origin":"Opp Blk 301- Jurong East Ave 1, Singapore"},{"display":"Bus Stop Infront Blk 347 - Jurong East Ave 1","origin":"nfront Blk 347 - Jurong East Ave 1, Singapore"},{"display":"Bus Stop Infront Blk 328 (opp Jurong Polyclinic) - Jurong East Ave 1","origin":"nfront Blk 328  - Jurong East Ave 1, Singapore"},{"display":"Bus stop 28511 Infront Blk 463 Jurong west Ave 1","origin":"in front of Blk 463 Jurong west Ave 1, Singapore"},{"display":"Bus Stop Blk 457- Jurong West Ave 1","origin":"lk 457- Jurong West Ave 1, Singapore"},{"display":"Bus Stop Blk 502 - Jurong West Ave 1","origin":"lk 502 - Jurong West Ave 1, Singapore"},{"display":"Bus Stop Blk 536 - Jurong West Ave 1","origin":"lk 536 - Jurong West Ave 1, Singapore"},{"display":"Bus Stop opp Blk 276B - Jurong West Ave 3","origin":"pp Blk 276B - Jurong West Ave 3, Singapore"},{"display":"Bus Stop Blk 271A - Jurong West Ave 3","origin":"lk 271A - Jurong West Ave 3, Singapore"}],"13WP":[{"display":"Bus Stop 10049 Opp Kampong Bahru Ter- Kampong Bahru Road","origin":"Opp Kampong Bahru Ter- Kampong Bahru Road, Singapore"},{"display":"Bus Stop 05539 Opp Police Cantonment Complex-Cantonment rd","origin":"Opp Police Cantonment Complex-Cantonment rd, Singapore"},{"display":"Bus Stop 05519 Opposite Maritime Hse- Cantoment Rd","origin":"Opposite Maritime Hse- Cantoment Rd, Singapore"},{"display":"Bus Stop 14171 Opp Yeo's Building","origin":"Opp Yeo's Building, Singapore"},{"display":"Bus Stop 18011 - After Hort Park- Alexandra Road","origin":"After Hort Park- Alexandra Road, Singapore"},{"display":"Bus Stop 17061 Infront Blk 701 - West Coast Rd","origin":"in front of Blk 701 - West Coast Rd, Singapore"},{"display":"Bus Stop 17071 Infront Blk 513 - West Coast Rd","origin":"in front of Blk 513 - West Coast Rd, Singapore"},{"display":"Bus stop 20131 S'pore Food Industries Bldg - West Coast Rd","origin":"S'pore Food Industries Bldg - West Coast Rd, Singapore"},{"display":"Bus Stop 20231 Bef Hasanah Mosque - Teban Gardens Rd","origin":"before Hasanah Mosque - Teban Gardens Rd, Singapore"}],"14":[{"display":"Bus Stop 27271 Blk 962 (near Prime Supermarket)- Jurong West St 91","origin":"Blk 962 - Jurong West St 91, Singapore"},{"display":"Bus Stop 27131 Blk 932 - Jurong West St 91","origin":"Blk 932 - Jurong West St 91, Singapore"},{"display":"Bus Stop 27141 infront Blk 920 - Jurong West St 91","origin":"in front of Blk 920 - Jurong West St 91, Singapore"},{"display":"Bus Stop 27501 infront NTUC Health Nursing Home - Jurong West St 93","origin":"in front of NTUC Health Nursing Home - Jurong West St 93, Singapore"},{"display":"Infront 987A - Jurong West St 93","origin":"in front of 987A - Jurong West St 93, Singapore"}],"14WP":[{"display":"Bus Stop 59421 Blk 624 (Opp NTUC) - Yishun Ring Rd","origin":"Blk 624  - Yishun Ring Rd, Singapore"},{"display":"Bus Stop 59449 Opp Naval base pri sch - Yishun Ave 4","origin":"Opp Naval base pri sch - Yishun Ave 4, Singapore"},{"display":"Bus Stop 59501 Infront Blk 870 - Yishun Ave 1","origin":"in front of Blk 870 - Yishun Ave 1, Singapore"},{"display":"Bus Stop 59589 Blk 505C - Yishun Street 41","origin":"Blk 505C - Yishun Street 41, Singapore"},{"display":"Bus Stop 59411 Infront Blk 356 - Yishun Ring Rd","origin":"in front of Blk 356 - Yishun Ring Rd, Singapore"},{"display":"Bus stop 59621 Infront Blks 318A/318B - Yishun Ave 9","origin":"in front of Blks 318A/318B - Yishun Ave 9, Singapore"},{"display":"Bus stop 59171 Infront Blk 309 - Yishun Ave 9","origin":"in front of Blk 309 - Yishun Ave 9, Singapore"},{"display":"Bus Stop 59091 Infornt Blk 154 - Yishun Ave 2","origin":"Infornt Blk 154 - Yishun Ave 2, Singapore"},{"display":"Bus Stop 59261 Infront Blk 174 - Yishun Ave 7","origin":"in front of Blk 174 - Yishun Ave 7, Singapore"},{"display":"Bus Stop 57089 Infront Blk 713 - Sembawang Rd","origin":"in front of Blk 713 - Sembawang Rd, Singapore"}],"15":[{"display":"Bus Stop 22509 Infront Blk 664C - Jurong West St 63","origin":"in front of Blk 664C - Jurong West St 63, Singapore"},{"display":"Infront Frontier CC - Jurong West Central 3","origin":"in front of Frontier CC - Jurong West Central 3, Singapore"},{"display":"Bus Stop 22481 Infront Blk 691A - Jurong West Central 1","origin":"in front of Blk 691A - Jurong West Central 1, Singapore"},{"display":"Bus Stop 22441 Infront Blk 669A - Jurong West St 64","origin":"in front of Blk 669A - Jurong West St 64, Singapore"},{"display":"Bus Stop 22341 Infront Blk 673C- Jurong West AVE 4","origin":"in front of Blk 673C- Jurong West AVE 4, Singapore"},{"display":"Bus Stop 22239 Infront Blk 624- Jurong West St 61","origin":"in front of Blk 624- Jurong West St 61, Singapore"}],"16":[{"display":"Bus Stop 42161 Blk 18 - Jalan Jurong Kechil","origin":"Blk 18 - Jalan Jurong Kechil, Singapore"},{"display":"Bus Stop 42229 After toh tuck terrace - Toh Tuck Rd","origin":"After toh tuck terrace - Toh Tuck Rd, Singapore"},{"display":"Outside Parkview Apartments - Bt Batok Street 25","origin":"Outside Parkview Apartments - Bt Batok Street 25, Singapore"},{"display":"Bus Stop 43191 Infront Blk 288C - Bt Batok East Ave 6","origin":"in front of Blk 288C - Bt Batok East Ave 6, Singapore"},{"display":"Bus Stop 43181 Keming Pri Sch - Bt Batok East Ave 3 (WEF 6 Mar 2023)","origin":"Keming Pri Sch - Bt Batok East Ave 3, Singapore"},{"display":"Infront Blk 264 - Bt Batok East Ave 4","origin":"in front of Blk 264 - Bt Batok East Ave 4, Singapore"},{"display":"Bus Stop 43439 infront Blk 242 - Bt Batok East Ave 2","origin":"in front of Blk 242 - Bt Batok East Ave 2, Singapore"},{"display":"Bus Stop 43429 Infront Blk 240 - Bt Batok East Ave 2","origin":"in front of Blk 240 - Bt Batok East Ave 2, Singapore"},{"display":"Bus Stop 43701 Infront Blk 225 - Bt Batok Central","origin":"in front of Blk 225 - Bt Batok Central, Singapore"},{"display":"Bus Stop 43389 opp Blk 102 - Bt Batok Ave 1","origin":"opp Blk 102 - Bt Batok Ave 1, Singapore"}],"16A":[{"display":"Bus stop 43379 Infront Blk 185A - Bukit Batok West Ave 6","origin":"in front of Blk 185A - Bukit Batok West Ave 6, Singapore"},{"display":"Infront Blk 178 - Bt Batok West Ave 8","origin":"in front of Blk 178 - Bt Batok West Ave 8, Singapore"},{"display":"Bus stop 40341 Before Blk 440A - Bt Batok West Ave 8","origin":"Before Blk 440A - Bt Batok West Ave 8, Singapore"},{"display":"Bus stop 43481 infront blk 315 - Bt Batok West Ave 2","origin":"in front of blk 315 - Bt Batok West Ave 2, Singapore"},{"display":"Bus stop 43601 Opposite blk 531/532 - Bt Batok West Ave 5","origin":"Opposite blk 531/532 - Bt Batok West Ave 5, Singapore"},{"display":"Bus stop 43571 opp Gombak MRT - Bt Batok West Ave 5","origin":"opp Gombak MRT - Bt Batok West Ave 5, Singapore"},{"display":"Bus stop 43581 Blk 347 - Bt Batok West Ave 5","origin":"Blk 347 - Bt Batok West Ave 5, Singapore"},{"display":"Bus stop 43669 Blk 406 - Bt Batok West Ave 7","origin":"Blk 406 - Bt Batok West Ave 7, Singapore"}],"18":[{"display":"Bus Stop 44161 Bukit Batok Road before ITE College West","origin":"Bukit Batok Road before ITE College West, Singapore"},{"display":"Bus Stop 44129 Opposite Blk 113 - Choa Chu Kang Way","origin":"Opposite Blk 113 - Choa Chu Kang Way, Singapore"},{"display":"Bus Stop 44119 Infront Blk 204-Choa Chu Kang Ave 1","origin":"in front of Blk 204-Choa Chu Kang Ave 1, Singapore"},{"display":"Bus Stop 44391 Infront Blk 209 - Choa Chu Kang Dr","origin":"in front of Blk 209 - Choa Chu Kang Dr, Singapore"},{"display":"IN- Bus Stop 44531 Opp CCK MRT- Choa Chu Kang Ave 4","origin":"Opp CCK MRT- Choa Chu Kang Ave 4, Singapore"},{"display":"Bus Stop 44461 Infront Blk 352 - Choa Chu Kang Way","origin":"in front of Blk 352 - Choa Chu Kang Way, Singapore"},{"display":"Bus Stop 44079 Infront Blk 484A - Choa Chu Kang Ave 3","origin":"in front of Blk 484A - Choa Chu Kang Ave 3, Singapore"}],"22":[{"display":"Bus Stop 21439 Infront Boon Lay CC - Boon Lay Place","origin":"in front of Boon Lay CC - Boon Lay Place, Singapore"},{"display":"Bus Stop 21429 Infront Blk 185 - Boon Lay Ave","origin":"in front of Blk 185 - Boon Lay Ave, Singapore"},{"display":"Bus Stop 21699 Infront Summerdale Condo- Boon Lay Way","origin":"in front of Summerdale Condo- Boon Lay Way, Singapore"},{"display":"Bus Stop 21229 Infront Lakeholmz - Corporation Road","origin":"in front of Lakeholmz - Corporation Road, Singapore"},{"display":"Bus Stop 21609 Infront Blk 339A - Corporation Dr","origin":"in front of Blk 339A - Corporation Dr, Singapore"},{"display":"Bus Stop 21599 Infront Blk 117 - Corporation Dr","origin":"in front of Blk 117 - Corporation Dr, Singapore"},{"display":"Bus Stop 21569 opposite Blk 158- Corporation Dr","origin":"opposite Blk 158- Corporation Dr, Singapore"},{"display":"Bus Stop 21559 Opposite Blk 152 - Yung Ho Rd","origin":"Opposite Blk 152 - Yung Ho Rd, Singapore"}],"24":[{"display":"Bus stop 66041 Blk 230 - Boundary Rd","origin":"Blk 230 - Boundary Rd, Singapore"},{"display":"Opposite Stars of Kovan - Tampines Road","origin":"Opposite Stars of Kovan - Tampines Road, Singapore"},{"display":"Bus stop 63029 Opposite the helping hand - Upper Serangoon rd","origin":"Opposite the helping hand - Upper Serangoon rd, Singapore"},{"display":"Bus Stop 63291 Infront Blk 167 - Lor Ah Soo","origin":"in front of Blk 167 - Lor Ah Soo, Singapore"},{"display":"Bus stop 62221 Opp The Minton - Lor Ah Soo","origin":"Opp The Minton - Lor Ah Soo, Singapore"},{"display":"Bus stop 63019 Aft Upp S'goon Shop Ctr","origin":"after Upp S'goon Shop Ctr, Singapore"},{"display":"Bus stop 62081 Opp Bartley Chr Ch","origin":"Opp Bartley Chr Ch, Singapore"},{"display":"Bus Stop 62101 Bef Upp Serangoon Road","origin":"before Upp Serangoon Road, Singapore"}],"29":[{"display":"Bus stop 50201, Infront Shaw Plaza - Balestier Road","origin":"in front of Shaw Plaza - Balestier Road, Singapore"},{"display":"Bus stop 07551, infront Fu lu shou complex - Rochor Rd","origin":"in front of Fu lu shou complex - Rochor Rd, Singapore"},{"display":"Peace centre (infront Singapore pools) - Sophia Rd","origin":"Peace centre  - Sophia Rd, Singapore"},{"display":"Bus stop 07211 (Infront Sri Srinivasa Perumal) - Serangoon Road","origin":"Serangoon Road, Singapore"},{"display":"Bus stop 60121 Boon Keng Mrt- Serangoon Rd","origin":"Boon Keng Mrt- Serangoon Rd, Singapore"},{"display":"Bus stop 60161 Infront ST. MICHAEL'S PL - Serangoon Rd","origin":"in front of ST. MICHAEL'S PL - Serangoon Rd, Singapore"},{"display":"Bus stop 60269 - Potong Pasir Mrt","origin":"Potong Pasir Mrt, Singapore"},{"display":"Bus stop 60089, Opp. St. Andrew's Village - Before PIE","origin":"Opp. St. Andrew's Village - Before PIE, Singapore"},{"display":"Bus stop 52089 - Along PIE (Near St Michael's Industrial Estate)","origin":"Along PIE, Singapore"}],"30":[{"display":"Bus Stop B46469 Infront Blk 759 - Woodlands Ave 9","origin":"in front of Blk 759 - Woodlands Ave 9, Singapore"},{"display":"Bus Stop B46441 Infront Blk 816 - Woodlands Street 82","origin":"in front of Blk 816 - Woodlands Street 82, Singapore"},{"display":"Bus Stop B46181 Opp Blk 12 - Marsiling Rd","origin":"Opp Blk 12 - Marsiling Rd, Singapore"},{"display":"Bus Stop B46149 Infront Blk 203 - Marsiling Drive","origin":"in front of Blk 203 - Marsiling Drive, Singapore"},{"display":"Bus Stop B46119 Opposite Blk 23 (Marsiling CC) - Admiralty Rd","origin":"Opposite Blk 23  - Admiralty Rd, Singapore"},{"display":"Bus Stop B46069 Woodlands Train Checkpoint - Woodlands Centre Road","origin":"Woodlands Train Checkpoint - Woodlands Centre Road, Singapore"},{"display":"Bus Stop 46491 Infront Blk 402 - Woodlands Ave 3","origin":"in front of Blk 402 - Woodlands Ave 3, Singapore"}]};
+
+const busListEl = document.getElementById('busList');
+const mapStatusEl = document.getElementById('mapStatus');
+const routePanelEl = document.getElementById('routePanel');
+const setupBanner = document.getElementById('setupBanner');
+
+let map = null;
+let mapsReady = false;
+let currentPolyline = null;
+let currentMarkers = [];
+let activeBtn = null;
+const geocodeCache = {}; // origin string -> {lat, lng} | null
+
+function showSetupWarning(msg) {
+  setupBanner.style.display = 'block';
+  setupBanner.textContent = msg;
+}
+
+function loadGoogleMaps() {
+  if (!GOOGLE_MAPS_API_KEY || GOOGLE_MAPS_API_KEY === "YOUR_API_KEY_HERE") {
+    showSetupWarning("This page isn't set up yet — add a Google Maps API key at the top of the script before it can load the map. See the comment in the source code.");
+    return;
+  }
+  const script = document.createElement('script');
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=onMapsLoaded`;
+  script.async = true;
+  script.onerror = () => showSetupWarning("Couldn't load Google Maps. Double-check the API key and that billing is enabled on the Google Cloud project.");
+  document.head.appendChild(script);
+}
+
+window.onMapsLoaded = function () {
+  mapsReady = true;
+  map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 1.3521, lng: 103.8198 },
+    zoom: 11,
+    mapTypeControl: false,
+    streetViewControl: false
+  });
+  buildSidebar();
+  document.querySelectorAll('.bus-btn').forEach(b => b.disabled = false);
+};
+
+const geocoder = () => new google.maps.Geocoder();
+let _geocoderInstance = null;
+
+function geocodeOne(query) {
+  if (geocodeCache[query] !== undefined) return Promise.resolve(geocodeCache[query]);
+  if (!_geocoderInstance) _geocoderInstance = new google.maps.Geocoder();
+  return new Promise((resolve) => {
+    _geocoderInstance.geocode({ address: query, region: 'sg' }, (results, status) => {
+      if (status === 'OK' && results && results.length > 0) {
+        const loc = results[0].geometry.location;
+        const coords = { lat: loc.lat(), lng: loc.lng() };
+        geocodeCache[query] = coords;
+        resolve(coords);
+      } else {
+        geocodeCache[query] = null;
+        resolve(null);
+      }
+    });
+  });
+}
+
+function setStatus(text) {
+  mapStatusEl.style.display = text ? 'block' : 'none';
+  mapStatusEl.textContent = text || '';
+}
+
+function clearRoute() {
+  if (currentPolyline) { currentPolyline.setMap(null); currentPolyline = null; }
+  currentMarkers.forEach(m => m.setMap(null));
+  currentMarkers = [];
+}
+
+async function selectBus(busNo, btn) {
+  if (!mapsReady) return;
+  if (activeBtn) activeBtn.classList.remove('active');
+  btn.classList.add('active');
+  activeBtn = btn;
+
+  clearRoute();
+  routePanelEl.style.display = 'none';
+
+  const stops = BUSES[busNo];
+  const needsGeocode = stops.some(s => geocodeCache[s.origin] === undefined);
+  if (needsGeocode) setStatus(`Loading Bus ${busNo} route…`);
+
+  const coordResults = await Promise.all(stops.map(s => geocodeOne(s.origin)));
+  setStatus('');
+
+  const coordsList = [];
+  coordResults.forEach((c, i) => {
+    if (c) coordsList.push({ ...c, display: stops[i].display, idx: i });
+  });
+
+  if (coordsList.length === 0) {
+    routePanelEl.style.display = 'block';
+    routePanelEl.innerHTML = `<span class="bus-tag">Bus ${busNo}</span><p>Couldn't locate any stops for this route.</p>`;
+    return;
+  }
+
+  const path = coordsList.map(c => ({ lat: c.lat, lng: c.lng }));
+  currentPolyline = new google.maps.Polyline({
+    path,
+    geodesic: true,
+    strokeColor: '#1e5c4a',
+    strokeOpacity: 0.85,
+    strokeWeight: 4,
+    map
+  });
+
+  const bounds = new google.maps.LatLngBounds();
+  const infoWindow = new google.maps.InfoWindow();
+
+  coordsList.forEach((c, i) => {
+    const marker = new google.maps.Marker({
+      position: { lat: c.lat, lng: c.lng },
+      map,
+      label: { text: String(i + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 12,
+        fillColor: '#1e5c4a',
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 2
+      }
+    });
+    marker.addListener('click', () => {
+      infoWindow.setContent(`<b>Stop ${i + 1}</b><br>${c.display}`);
+      infoWindow.open(map, marker);
+    });
+    currentMarkers.push(marker);
+    bounds.extend(marker.getPosition());
+  });
+
+  map.fitBounds(bounds, 60);
+
+  const missing = stops.length - coordsList.length;
+  routePanelEl.style.display = 'block';
+  routePanelEl.innerHTML = `
+    <span class="bus-tag">Bus ${busNo}</span>
+    <p>${coordsList.length} stop${coordsList.length === 1 ? '' : 's'} shown${missing ? ` · ${missing} stop${missing === 1 ? '' : 's'} couldn't be located` : ''}. Click a pin for the stop name.</p>
+  `;
+}
+
+function buildSidebar() {
+  busListEl.innerHTML = '';
+  Object.keys(BUSES).forEach(busNo => {
+    const btn = document.createElement('button');
+    btn.className = 'bus-btn';
+    btn.disabled = !mapsReady;
+    btn.innerHTML = `Bus ${busNo} <span class="stopcount">${BUSES[busNo].length} stops</span>`;
+    btn.addEventListener('click', () => selectBus(busNo, btn));
+    busListEl.appendChild(btn);
+  });
+}
+
+// Build a disabled sidebar immediately so it's visible while Maps loads
+buildSidebar();
+loadGoogleMaps();
+</script>
+</body>
+</html>
